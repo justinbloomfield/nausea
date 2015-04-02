@@ -1,4 +1,4 @@
-#if 0
+#if 1
 #define CHBAR L'▮'
 #define CHPEAK L'▪'
 #define CHPOINT L'●'
