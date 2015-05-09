@@ -449,6 +449,12 @@ draw_boom(struct frame *fr)
 	unsigned dim, cx, cy, cur, r;
 	double avg = 0;
 
+	erase();
+
+	/* no samples at all */
+	if (fr->gotsamples == 0)
+		return;
+
 	/* read dimensions to catch window resize */
 	fr->width = COLS;
 	fr->height = LINES;
@@ -481,7 +487,6 @@ draw_boom(struct frame *fr)
 	cx = fr->width / 2;
 	cy = fr->height / 2;
 
-	erase();
 	attron(A_BOLD);
 	setcolor(1, fr->height - 3 * r);
 	/* put the center point */
