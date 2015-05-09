@@ -478,9 +478,8 @@ draw_boom(struct frame *fr)
 		avg += abs(fr->in[i]);
 	avg /= fr->gotsamples;
 	/* scale it to our box */
-	r = (avg / INT16_MAX) * dim;
 #define RADSCALE 2
-	r *= RADSCALE;
+	r = (avg * dim * RADSCALE / INT16_MAX);
 #undef RADSCALE
 
 	/* center */
