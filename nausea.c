@@ -3,6 +3,7 @@
 #include <curses.h>
 #include <fcntl.h>
 #include <locale.h>
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
@@ -48,19 +49,23 @@ struct frame {
 
 /* Supported visualizations:
  * 1 -- spectrum
- * 2 -- wave
- * 2 -- fountain */
+ * 2 -- fountain
+ * 3 -- wave
+ * 4 -- boom
+ */
 static void draw_spectrum(struct frame *fr);
-static void draw_wave(struct frame *fr);
 static void draw_fountain(struct frame *fr);
+static void draw_wave(struct frame *fr);
+static void draw_boom(struct frame *fr);
 static struct visual {
 	void (* draw)(struct frame *fr);
 	int dft;   /* needs the DFT */
 	int color; /* supports colors */
 } visuals[] = {
 	{draw_spectrum, 1, 1},
-	{draw_wave,     0, 0},
 	{draw_fountain, 1, 1},
+	{draw_wave,     0, 0},
+	{draw_boom,     0, 1},
 };
 static int vidx = 0; /* default visual index */
 
@@ -437,6 +442,80 @@ draw_fountain(struct frame *fr)
 }
 
 static void
+draw_boom(struct frame *fr)
+{
+	unsigned i, j;
+	struct color_range *cr;
+	unsigned dim, cx, cy, cur, r;
+	double avg = 0;
+
+	/* read dimensions to catch window resize */
+	fr->width = COLS;
+	fr->height = LINES;
+
+	if (colors) {
+		/* scale color ranges */
+		for (i = 0; i < LEN(color_ranges); i++) {
+			cr = &color_ranges[i];
+			cr->scaled_min = cr->min * fr->height / 100;
+			cr->scaled_max = cr->max * fr->height / 100;
+		}
+	}
+
+	/* We assume that to draw a circle using a monospace font we need
+	 * _twice_ the distance on the x-axis, so we double everything. */
+
+	/* size of radius */
+	dim = MIN(fr->width / 2, fr->height);
+
+	for (i = 0; i < fr->gotsamples; i++)
+		avg += abs(fr->in[i]);
+	avg /= fr->gotsamples;
+	/* scale it to our box */
+	r = (avg / INT16_MAX) * dim;
+#define RADSCALE 2
+	r *= RADSCALE;
+#undef RADSCALE
+
+	/* center */
+	cx = fr->width / 2;
+	cy = fr->height / 2;
+
+	erase();
+	attron(A_BOLD);
+	setcolor(1, fr->height - 3 * r);
+	/* put the center point */
+	move(cy, cx);
+	printw("%lc", chpoint);
+	for (i = 0; i < fr->width; i++) {
+		for (j = 0; j < fr->height; j++) {
+			cur = sqrt((i - cx) * (i - cx) +
+			           (j - cy) * (j - cy));
+			/* draw points on the perimeter */
+			if (cur == r) {
+				move(j, 2 * i - cx);
+				printw("%lc", chpoint);
+				/* leave just the center point alone */
+				if (i == cx && j == cy)
+					continue;
+				/* draw second point to make line thicker */
+				if (i <= cx) {
+					move(j, 2 * i - cx - 1);
+					printw("%lc", chpoint);
+				}
+				if (i >= cx) {
+					move(j, 2 * i - cx + 1);
+					printw("%lc", chpoint);
+				}
+			}
+		}
+	}
+	setcolor(0, fr->height - 3 * r);
+	attroff(A_BOLD);
+	refresh();
+}
+
+static void
 initcolors(void)
 {
 	unsigned i;
@@ -482,6 +561,9 @@ main(int argc, char *argv[])
 					break;
 				case '3':
 					vidx = 2;
+					break;
+				case '4':
+					vidx = 3;
 					break;
 				}
 				break;
@@ -565,6 +647,9 @@ main(int argc, char *argv[])
 		case '3':
 			vidx = 2;
 			break;
+		case '4':
+			vidx = 3;
+			break;
 		case 'n':
 		case KEY_RIGHT:
 			vidx = vidx == (LEN(visuals) - 1) ? 0 : vidx + 1;
@@ -579,7 +664,7 @@ main(int argc, char *argv[])
 		if (vidx != vidx_prev)
 			fr.width_old = 0;
 
-		/* only spectrum and fountain support colors */
+		/* not all visuals support colors */
 		if (colors && visuals[vidx].color)
 			initcolors();
 		else
