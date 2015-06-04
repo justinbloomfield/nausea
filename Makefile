@@ -15,6 +15,9 @@ $(BIN): $(OBJ)
 
 nausea.o: config.h
 
+config.h:
+	cp config.def.h $@
+
 install: all
 	mkdir -p $(DESTDIR)$(PREFIX)/bin
 	cp -f $(BIN) $(DESTDIR)$(PREFIX)/bin
@@ -27,8 +30,3 @@ uninstall:
 
 clean:
 	rm -f $(BIN) $(OBJ)
-
-.SUFFIXES: .def.h
-
-.def.h.h:
-	cp $< $@
