@@ -52,11 +52,13 @@ struct frame {
  * 2 -- fountain
  * 3 -- wave
  * 4 -- boom
+ * 5 -- solid
  */
 static void draw_spectrum(struct frame *fr);
 static void draw_fountain(struct frame *fr);
 static void draw_wave(struct frame *fr);
 static void draw_boom(struct frame *fr);
+static void draw_solid(struct frame *fr);
 static struct visual {
 	void (* draw)(struct frame *fr);
 	int dft;   /* needs the DFT */
@@ -66,6 +68,7 @@ static struct visual {
 	{draw_fountain, 1, 1},
 	{draw_wave,     0, 0},
 	{draw_boom,     0, 1},
+	{draw_solid,    0, 1},
 };
 static int vidx = 0; /* default visual index */
 
@@ -520,6 +523,65 @@ draw_boom(struct frame *fr)
 }
 
 static void
+draw_solid(struct frame *fr)
+{
+	unsigned i, j;
+	struct color_range *cr;
+	unsigned samples_per_col;
+	double pt_pos;
+
+	/* read dimensions to catch window resize */
+	fr->width = COLS;
+	fr->height = LINES;
+
+	if (colors) {
+		/* scale color ranges */
+		for (i = 0; i < LEN(color_ranges); i++) {
+			cr = &color_ranges[i];
+			cr->scaled_min = cr->min * (fr->height / 2) / 100;
+			cr->scaled_max = cr->max * (fr->height / 2) / 100;
+		}
+	}
+
+	erase();
+
+	/* not enough samples */
+	if (fr->gotsamples < fr->width)
+		return;
+
+	samples_per_col = (fr->gotsamples / 2) / fr->width;
+
+	attron(A_BOLD);
+	for (i = 0; i < fr->width; i++) {
+		size_t y;
+
+		/* compute point position */
+		pt_pos = 0;
+		for (j = 0; j < samples_per_col; j++)
+			pt_pos += fr->in[i * samples_per_col + j];
+		pt_pos /= samples_per_col;
+		/* normalize it */
+		pt_pos /= INT16_MAX;
+		/* scale it */
+#define PTSCALE 1
+		pt_pos *= (fr->height / 2) * PTSCALE;
+#undef PTSCALE
+
+		/* output points */
+		setcolor(1, fr->height / 2 - abs(pt_pos));
+		for (y = fr->height / 2 - abs(pt_pos);
+		    y <= fr->height / 2 + abs(pt_pos);
+		    y++) {
+			move(y, i);
+			printw("%lc", chbar);
+		}
+		setcolor(0, fr->height / 2 - abs(pt_pos));
+	}
+	attroff(A_BOLD);
+	refresh();
+}
+
+static void
 initcolors(void)
 {
 	unsigned i;
@@ -568,6 +630,9 @@ main(int argc, char *argv[])
 					break;
 				case '4':
 					vidx = 3;
+					break;
+				case '5':
+					vidx = 4;
 					break;
 				}
 				break;
@@ -653,6 +718,9 @@ main(int argc, char *argv[])
 			break;
 		case '4':
 			vidx = 3;
+			break;
+		case '5':
+			vidx = 4;
 			break;
 		case 'n':
 		case KEY_RIGHT:
