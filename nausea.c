@@ -233,6 +233,10 @@ draw_spectrum(struct frame *fr)
 		fr->res[i] = cabs(fr->out[i]);
 		/* normalize it */
 		fr->res[i] /= (nsamples / 2);
+		/* boost higher freqs */
+		fr->res[i] *= log2(i);
+		fr->res[i] *= 0.00005 * i;
+		fr->res[i] = pow(fr->res[i], 0.5);
 		/* scale it */
 		fr->res[i] *= fr->height * BARSCALE;
 	}
