@@ -222,7 +222,7 @@ draw_spectrum(struct frame *fr)
 	}
 
 	/* take most of the left part of the band */
-#define BANDCUT 0.5
+#define BANDCUT 0.4
 	freqs_per_col = (nsamples / 2) / fr->width * BANDCUT;
 #undef BANDCUT
 
