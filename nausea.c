@@ -622,23 +622,9 @@ main(int argc, char *argv[])
 				if (*++argv == NULL)
 					usage();
 				argc--;
-				switch (*argv[0]) {
-				case '1':
-					vidx = 0;
-					break;
-				case '2':
-					vidx = 1;
-					break;
-				case '3':
-					vidx = 2;
-					break;
-				case '4':
-					vidx = 3;
-					break;
-				case '5':
-					vidx = 4;
-					break;
-				}
+				vidx = *argv[0] - '0' - 1;
+				if (vidx < 0 || vidx > LEN(visuals) - 1)
+					errx(1, "illegal visual index");
 				break;
 			case 'c':
 				colors = 1;
