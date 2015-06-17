@@ -15,6 +15,7 @@
 
 #define LEN(x) (sizeof (x) / sizeof *(x))
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
+#define WCSLEN(s) (LEN(s) - 2)
 
 #include "config.h"
 
@@ -624,7 +625,7 @@ draw_spectro(struct frame *fr)
 		fr->res[i] *= log2(i);
 		fr->res[i] = pow(fr->res[i], 0.5);
 		/* scale it */
-		fr->res[i] *= (LEN(intensity) - 2) * 0.08;
+		fr->res[i] *= WCSLEN(intensity) * 0.08;
 	}
 
 	/* ensure we are inside the frame */
@@ -638,8 +639,8 @@ draw_spectro(struct frame *fr)
 		for (i = 0; i < freqs_per_row; i++)
 			amplitude += fr->res[j * freqs_per_row + i];
 		amplitude /= freqs_per_row;
-		if (amplitude > LEN(intensity) - 2)
-			amplitude = LEN(intensity) - 3;
+		if (amplitude > WCSLEN(intensity))
+			amplitude = WCSLEN(intensity) - 1;
 
 		/* output intensity */
 		move(fr->height - j - 1, col);
