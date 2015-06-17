@@ -32,6 +32,7 @@ static int keep;
 static int left;
 static int bounce;
 static int die;
+static int freeze;
 
 struct frame {
 	int fd;
@@ -788,6 +789,9 @@ main(int argc, char *argv[])
 		case KEY_LEFT:
 			vidx = vidx == 0 ? LEN(visuals) - 1 : vidx - 1;
 			break;
+		case ' ':
+			freeze = !freeze;
+			break;
 		}
 
 		/* detect visualization change */
@@ -801,7 +805,8 @@ main(int argc, char *argv[])
 			(void)use_default_colors();
 
 		update(&fr);
-		visuals[vidx].draw(&fr);
+		if (!freeze)
+			visuals[vidx].draw(&fr);
 
 		vidx_prev = vidx;
 	}
