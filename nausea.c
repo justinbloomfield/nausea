@@ -23,6 +23,7 @@ static unsigned nsamples = 44100 * 2; /* stereo */
 static wchar_t chbar = CHBAR;
 static wchar_t chpeak = CHPEAK;
 static wchar_t chpoint = CHPOINT;
+static wchar_t intensity[] = INTENSITY;
 static char *fname = "/tmp/audio.fifo";
 static char *argv0;
 static int colors;
@@ -35,7 +36,7 @@ static int die;
 struct frame {
 	int fd;
 	size_t width, width_old;
-	size_t height;
+	size_t height, height_old;
 	int *peak;
 	int *sav;
 #define PK_HIDDEN -1
@@ -53,12 +54,14 @@ struct frame {
  * 3 -- wave
  * 4 -- boom
  * 5 -- solid
+ * 6 -- spectro
  */
 static void draw_spectrum(struct frame *fr);
 static void draw_fountain(struct frame *fr);
 static void draw_wave(struct frame *fr);
 static void draw_boom(struct frame *fr);
 static void draw_solid(struct frame *fr);
+static void draw_spectro(struct frame *fr);
 static struct visual {
 	void (* draw)(struct frame *fr);
 	int dft;   /* needs the DFT */
@@ -69,6 +72,7 @@ static struct visual {
 	{draw_wave,     0, 0},
 	{draw_boom,     0, 1},
 	{draw_solid,    0, 1},
+	{draw_spectro,  1, 0},
 };
 static int vidx = 0; /* default visual index */
 
@@ -586,6 +590,67 @@ draw_solid(struct frame *fr)
 }
 
 static void
+draw_spectro(struct frame *fr)
+{
+	unsigned i, j;
+	unsigned freqs_per_row;
+	static int col = 0;
+
+	/* read dimensions to catch window resize */
+	fr->width = COLS;
+	fr->height = LINES;
+
+	/* reset on window resize */
+	if (fr->width != fr->width_old || fr->height != fr->height_old) {
+		erase();
+		fr->width_old = fr->width;
+		fr->height_old = fr->height;
+		col = 0;
+	}
+
+	/* take most of the low part of the band */
+#define BANDCUT 0.4
+	freqs_per_row = (nsamples / 2) / fr->height * BANDCUT;
+#undef BANDCUT
+
+	/* normalize each frequency */
+	for (i = 0; i < nsamples / 2; i++) {
+		/* complex absolute value */
+		fr->res[i] = cabs(fr->out[i]);
+		/* normalize it */
+		fr->res[i] /= (nsamples / 2);
+		/* boost higher freqs */
+		fr->res[i] *= log2(i);
+		fr->res[i] = pow(fr->res[i], 0.5);
+		/* scale it */
+		fr->res[i] *= (LEN(intensity) - 2) * 0.08;
+	}
+
+	/* ensure we are inside the frame */
+	col %= fr->width;
+
+	attron(A_BOLD);
+	for (j = 0; j < fr->height; j++) {
+		size_t amplitude = 0;
+
+		/* compute amplitude */
+		for (i = 0; i < freqs_per_row; i++)
+			amplitude += fr->res[j * freqs_per_row + i];
+		amplitude /= freqs_per_row;
+		if (amplitude > LEN(intensity) - 2)
+			amplitude = LEN(intensity) - 3;
+
+		/* output intensity */
+		move(fr->height - j - 1, col);
+		printw("%lc", intensity[amplitude]);
+	}
+	attroff(A_BOLD);
+	refresh();
+
+	col = (col == fr->width - 1) ? 0 : col + 1;
+}
+
+static void
 initcolors(void)
 {
 	unsigned i;
@@ -711,6 +776,9 @@ main(int argc, char *argv[])
 			break;
 		case '5':
 			vidx = 4;
+			break;
+		case '6':
+			vidx = 5;
 			break;
 		case 'n':
 		case KEY_RIGHT:
