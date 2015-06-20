@@ -1,6 +1,6 @@
 # nausea
 
-This is a simple audio spectrum visualizer.  It works well with the mpd
+This is a simple audio visualizer.  It works well with the mpd
 music player daemon.  It was originally inspired by the visualizer
 screen of ncmpcpp.  It depends on the fftw3 and curses libraries.
 
@@ -29,5 +29,6 @@ To try it out with color support try:
 Some test sound files can be found here:
 
     http://www.audiocheck.net/testtones_sinesweep20-20k.php
+    http://www.audiocheck.net/audiotests_stereo.php
 
 Enjoy!
