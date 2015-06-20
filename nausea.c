@@ -15,6 +15,7 @@
 
 #define LEN(x) (sizeof (x) / sizeof *(x))
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
+#define MAX(x, y) ((x) > (y) ? (x) : (y))
 #define WCSLEN(s) (LEN(s) - 2)
 
 #include "config.h"
@@ -34,6 +35,7 @@ static int left;
 static int bounce;
 static int die;
 static int freeze;
+static int stereo;
 
 struct frame {
 	int fd;
@@ -45,7 +47,8 @@ struct frame {
 	int16_t *buf;
 	unsigned *res;
 	double *in;
-	ssize_t gotsamples;
+	size_t gotsamples;
+	size_t maxfreqs;
 	complex *out;
 	fftw_plan plan;
 };
@@ -66,15 +69,16 @@ static void draw_solid(struct frame *fr);
 static void draw_spectro(struct frame *fr);
 static struct visual {
 	void (* draw)(struct frame *fr);
-	int dft;   /* needs the DFT */
-	int color; /* supports colors */
+	int dft;    /* needs the DFT */
+	int color;  /* supports colors */
+	int stereo; /* supports stereo */
 } visuals[] = {
-	{draw_spectrum, 1, 1},
-	{draw_fountain, 1, 1},
-	{draw_wave,     0, 0},
-	{draw_boom,     0, 1},
-	{draw_solid,    0, 1},
-	{draw_spectro,  1, 0},
+	{ draw_spectrum, 1, 1, 0 },
+	{ draw_fountain, 1, 1, 0 },
+	{ draw_wave,     0, 0, 0 },
+	{ draw_boom,     0, 1, 0 },
+	{ draw_solid,    0, 1, 1 },
+	{ draw_spectro,  1, 0, 0 },
 };
 static int vidx = 0; /* default visual index */
 
@@ -122,14 +126,20 @@ init(struct frame *fr)
 		err(1, "open %s", fname);
 
 	fr->buf = malloc(nsamples * sizeof(int16_t));
-	fr->res = malloc(nsamples / 2 * sizeof(unsigned));
-	fr->in = malloc(nsamples / 2 * sizeof(double));
-	fr->out = malloc(nsamples / 2 * sizeof(complex));
+	fr->in = malloc(nsamples * sizeof(double));
+
+	/* these are used only by DFT visuals */
+	fr->out = malloc(((nsamples / 2) + 1) * sizeof(complex));
+	fr->res = malloc(((nsamples / 2) + 1) * sizeof(unsigned));
 
 	clearall(fr);
 
+	/* we expect single channel input, so half the samples */
 	fr->plan = fftw_plan_dft_r2c_1d(nsamples / 2, fr->in, fr->out,
 					FFTW_ESTIMATE);
+
+	/* the useful result is half the DFT window */
+	fr->maxfreqs = (nsamples / 2) / 2;
 }
 
 static void
@@ -160,20 +170,40 @@ update(struct frame *fr)
 	}
 
 	fr->gotsamples = n / sizeof(int16_t);
+}
+
+static void
+stagestereo(struct frame *fr)
+{
+	unsigned i;
+
+	for (i = 0; i < nsamples; i++)
+		fr->in[i] = fr->buf[i];
+}
+
+static void
+stagemono(struct frame *fr)
+{
+	unsigned i;
+
+	/* we have half the samples after the merge */
+	fr->gotsamples /= 2;
 
 	for (i = 0; i < nsamples / 2; i++) {
 		fr->in[i] = 0.;
-		if (i < fr->gotsamples / 2) {
+		if (i < fr->gotsamples) {
 			/* average the two channels */
 			fr->in[i] = fr->buf[i * 2 + 0];
 			fr->in[i] += fr->buf[i * 2 + 1];
 			fr->in[i] /= 2.;
 		}
 	}
+}
 
-	/* compute the DFT if needed */
-	if (visuals[vidx].dft)
-		fftw_execute(fr->plan);
+static void
+computedft(struct frame *fr)
+{
+	fftw_execute(fr->plan);
 }
 
 static void
@@ -227,26 +257,23 @@ draw_spectrum(struct frame *fr)
 		}
 	}
 
-	/* take most of the left part of the band */
-#define BANDCUT 0.4
-	freqs_per_col = (nsamples / 2) / fr->width * BANDCUT;
-#undef BANDCUT
+	/* take most of the low part of the band */
+	freqs_per_col = fr->maxfreqs / fr->width;
+	freqs_per_col *= 0.8;
 
 	/* scale each frequency to screen */
-#define BARSCALE 0.2
-	for (i = 0; i < nsamples / 2; i++) {
+	for (i = 0; i < fr->maxfreqs; i++) {
 		/* complex absolute value */
 		fr->res[i] = cabs(fr->out[i]);
 		/* normalize it */
-		fr->res[i] /= (nsamples / 2);
+		fr->res[i] /= fr->maxfreqs;
 		/* boost higher freqs */
 		fr->res[i] *= log2(i);
 		fr->res[i] *= 0.00005 * i;
 		fr->res[i] = pow(fr->res[i], 0.5);
 		/* scale it */
-		fr->res[i] *= fr->height * BARSCALE;
+		fr->res[i] *= 0.15 * fr->height;
 	}
-#undef BARSCALE
 
 	erase();
 	attron(A_BOLD);
@@ -312,7 +339,7 @@ draw_wave(struct frame *fr)
 	if (fr->gotsamples < fr->width)
 		return;
 
-	samples_per_col = (fr->gotsamples / 2) / fr->width;
+	samples_per_col = fr->gotsamples / fr->width;
 
 	attron(A_BOLD);
 	for (i = 0; i < fr->width; i++) {
@@ -326,9 +353,7 @@ draw_wave(struct frame *fr)
 		/* normalize it */
 		pt_pos /= INT16_MAX;
 		/* scale it */
-#define PTSCALE 0.8
-		pt_pos *= (fr->height / 2) * PTSCALE;
-#undef PTSCALE
+		pt_pos *= (fr->height / 2) * 0.8;
 
 		/* output points */
 		y = fr->height / 2 + pt_pos; /* centering */
@@ -380,21 +405,18 @@ draw_fountain(struct frame *fr)
 	}
 
 	/* scale each frequency to screen */
-#define BARSCALE 0.3
-	for (i = 0; i < nsamples / 2; i++) {
+	for (i = 0; i < fr->maxfreqs; i++) {
 		/* complex absolute value */
 		fr->res[i] = cabs(fr->out[i]);
 		/* normalize it */
-		fr->res[i] /= (nsamples / 2);
+		fr->res[i] /= fr->maxfreqs;
 		/* scale it */
-		fr->res[i] *= fr->height * BARSCALE;
+		fr->res[i] *= 0.006 * fr->height;
 	}
-#undef BARSCALE
 
-	/* take most of the left part of the band */
-#define BANDCUT 0.5
-	freqs = (nsamples / 2) * BANDCUT;
-#undef BANDCUT
+	/* take most of the low part of the band */
+	freqs = fr->maxfreqs / fr->width;
+	freqs *= 0.8;
 
 	/* compute bar height */
 	for (j = 0; j < freqs; j++)
@@ -491,9 +513,7 @@ draw_boom(struct frame *fr)
 		avg += abs(fr->in[i]);
 	avg /= fr->gotsamples;
 	/* scale it to our box */
-#define RADSCALE 2
-	r = (avg * dim * RADSCALE / INT16_MAX);
-#undef RADSCALE
+	r = (avg * dim / INT16_MAX);
 
 	/* center */
 	cx = fr->width / 2;
@@ -538,7 +558,7 @@ draw_solid(struct frame *fr)
 	unsigned i, j;
 	struct color_range *cr;
 	unsigned samples_per_col;
-	double pt_pos;
+	double pt_pos, pt_l, pt_r;
 
 	/* read dimensions to catch window resize */
 	fr->width = COLS;
@@ -559,33 +579,50 @@ draw_solid(struct frame *fr)
 	if (fr->gotsamples < fr->width)
 		return;
 
-	samples_per_col = (fr->gotsamples / 2) / fr->width;
+	samples_per_col = fr->gotsamples / fr->width;
 
 	attron(A_BOLD);
 	for (i = 0; i < fr->width; i++) {
 		size_t y;
 
 		/* compute point position */
-		pt_pos = 0;
-		for (j = 0; j < samples_per_col; j++)
-			pt_pos += fr->in[i * samples_per_col + j];
-		pt_pos /= samples_per_col;
-		/* normalize it */
-		pt_pos /= INT16_MAX;
-		/* scale it */
-#define PTSCALE 1
-		pt_pos *= (fr->height / 2) * PTSCALE;
-#undef PTSCALE
+		if (stereo) {
+			pt_l = pt_r = 0;
+			for (j = 0; j < samples_per_col / 2; j++) {
+				pt_l += fr->in[i * samples_per_col + j + 0];
+				pt_r += fr->in[i * samples_per_col + j + 1];
+			}
+			pt_l /= samples_per_col / 2;
+			pt_r /= samples_per_col / 2;
+			/* normalize it */
+			pt_l /= INT16_MAX;
+			pt_r /= INT16_MAX;
+			/* scale it */
+			pt_l *= (fr->height / 2);
+			pt_r *= (fr->height / 2);
+		} else {
+			pt_pos = 0;
+			for (j = 0; j < samples_per_col; j++)
+				pt_pos += fr->in[i * samples_per_col + j];
+			pt_pos /= samples_per_col;
+			/* normalize it */
+			pt_pos /= INT16_MAX;
+			/* scale it */
+			pt_pos *= (fr->height / 2);
+			/* treat left and right as the same */
+			pt_l = pt_pos;
+			pt_r = pt_pos;
+		}
 
 		/* output points */
-		setcolor(1, fr->height / 2 - abs(pt_pos));
-		for (y = fr->height / 2 - abs(pt_pos);
-		    y <= fr->height / 2 + abs(pt_pos);
+		setcolor(1, fr->height / 2 - MAX(abs(pt_l), abs(pt_r)));
+		for (y = fr->height / 2 - abs(pt_l);
+		    y <= fr->height / 2 + abs(pt_r);
 		    y++) {
 			move(y, i);
 			printw("%lc", chbar);
 		}
-		setcolor(0, fr->height / 2 - abs(pt_pos));
+		setcolor(0, fr->height / 2 - MAX(abs(pt_l), abs(pt_r)));
 	}
 	attroff(A_BOLD);
 	refresh();
@@ -611,21 +648,20 @@ draw_spectro(struct frame *fr)
 	}
 
 	/* take most of the low part of the band */
-#define BANDCUT 0.4
-	freqs_per_row = (nsamples / 2) / fr->height * BANDCUT;
-#undef BANDCUT
+	freqs_per_row = fr->maxfreqs / fr->width;
+	freqs_per_row *= 0.8;
 
 	/* normalize each frequency */
-	for (i = 0; i < nsamples / 2; i++) {
+	for (i = 0; i < fr->maxfreqs; i++) {
 		/* complex absolute value */
 		fr->res[i] = cabs(fr->out[i]);
 		/* normalize it */
-		fr->res[i] /= (nsamples / 2);
+		fr->res[i] /= fr->maxfreqs;
 		/* boost higher freqs */
 		fr->res[i] *= log2(i);
 		fr->res[i] = pow(fr->res[i], 0.5);
 		/* scale it */
-		fr->res[i] *= WCSLEN(intensity) * 0.08;
+		fr->res[i] *= WCSLEN(intensity) * 0.04;
 	}
 
 	/* ensure we are inside the frame */
@@ -668,7 +704,7 @@ initcolors(void)
 static void
 usage(void)
 {
-	fprintf(stderr, "usage: %s [-hcpklb] [-d num] [fifo]\n", argv0);
+	fprintf(stderr, "usage: %s [-hcpklbs] [-d num] [fifo]\n", argv0);
 	fprintf(stderr, "default fifo path is `/tmp/audio.fifo'\n");
 	exit(1);
 }
@@ -707,6 +743,9 @@ main(int argc, char *argv[])
 				break;
 			case 'b':
 				bounce = 1;
+				break;
+			case 's':
+				stereo = 1;
 				break;
 			case 'h':
 				/* fall-through */
@@ -764,6 +803,9 @@ main(int argc, char *argv[])
 		case 'b':
 			bounce = !bounce;
 			break;
+		case 's':
+			stereo = !stereo;
+			break;
 		case '1':
 			vidx = 0;
 			break;
@@ -806,6 +848,17 @@ main(int argc, char *argv[])
 			(void)use_default_colors();
 
 		update(&fr);
+
+		/* may need to merge channels */
+		if (stereo && visuals[vidx].stereo)
+			stagestereo(&fr);
+		else
+			stagemono(&fr);
+
+		/* compute the DFT if needed */
+		if (visuals[vidx].dft)
+			computedft(&fr);
+
 		if (!freeze)
 			visuals[vidx].draw(&fr);
 
