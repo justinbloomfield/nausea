@@ -587,8 +587,11 @@ draw_solid(struct frame *fr)
 
 		/* compute point position */
 		if (stereo) {
+			/* round down to an even */
+			if (samples_per_col % 2 != 0)
+				samples_per_col--;
 			pt_l = pt_r = 0;
-			for (j = 0; j < samples_per_col / 2; j++) {
+			for (j = 0; j < samples_per_col; j += 2) {
 				pt_l += fr->in[i * samples_per_col + j + 0];
 				pt_r += fr->in[i * samples_per_col + j + 1];
 			}
