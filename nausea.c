@@ -22,6 +22,8 @@
 
 static unsigned msec = 1000 / 25; /* 25 fps */
 static unsigned nsamples = 44100 * 2; /* stereo */
+static unsigned dftlen = 8192;
+static unsigned dftout = 8192 / 2 + 1;
 static wchar_t chbar = CHBAR;
 static wchar_t chpeak = CHPEAK;
 static wchar_t chpoint = CHPOINT;
@@ -48,7 +50,6 @@ struct frame {
 	unsigned *res;
 	double *in;
 	size_t gotsamples;
-	size_t maxfreqs;
 	complex *out;
 	fftw_plan plan;
 };
@@ -112,10 +113,10 @@ clearall(struct frame *fr)
 
 	fr->gotsamples = 0;
 
-	for (i = 0; i < nsamples / 2; i++) {
+	for (i = 0; i < nsamples; i++)
 		fr->in[i] = 0.;
+	for (i = 0; i < dftout; i++)
 		fr->out[i] = 0. + 0. * I;
-	}
 }
 
 static void
@@ -129,17 +130,14 @@ init(struct frame *fr)
 	fr->in = malloc(nsamples * sizeof(double));
 
 	/* these are used only by DFT visuals */
-	fr->out = malloc(((nsamples / 2) + 1) * sizeof(complex));
-	fr->res = malloc(((nsamples / 2) + 1) * sizeof(unsigned));
+	fr->out = malloc(dftout * sizeof(complex));
+	fr->res = malloc(dftout * sizeof(unsigned));
 
 	clearall(fr);
 
 	/* we expect single channel input, so half the samples */
-	fr->plan = fftw_plan_dft_r2c_1d(nsamples / 2, fr->in, fr->out,
+	fr->plan = fftw_plan_dft_r2c_1d(dftlen, fr->in, fr->out,
 					FFTW_ESTIMATE);
-
-	/* the useful result is half the DFT window */
-	fr->maxfreqs = (nsamples / 2) / 2;
 }
 
 static void
@@ -189,7 +187,7 @@ stagemono(struct frame *fr)
 	/* we have half the samples after the merge */
 	fr->gotsamples /= 2;
 
-	for (i = 0; i < nsamples / 2; i++) {
+	for (i = 0; i < nsamples; i++) {
 		fr->in[i] = 0.;
 		if (i < fr->gotsamples) {
 			/* average the two channels */
@@ -258,15 +256,15 @@ draw_spectrum(struct frame *fr)
 	}
 
 	/* take most of the low part of the band */
-	freqs_per_col = fr->maxfreqs / fr->width;
+	freqs_per_col = dftout / fr->width;
 	freqs_per_col *= 0.8;
 
 	/* scale each frequency to screen */
-	for (i = 0; i < fr->maxfreqs; i++) {
+	for (i = 0; i < dftout; i++) {
 		/* complex absolute value */
 		fr->res[i] = cabs(fr->out[i]);
 		/* normalize it */
-		fr->res[i] /= fr->maxfreqs;
+		fr->res[i] /= dftlen;
 		/* boost higher freqs */
 		fr->res[i] *= log2(i);
 		fr->res[i] *= 0.00005 * i;
@@ -405,17 +403,17 @@ draw_fountain(struct frame *fr)
 	}
 
 	/* scale each frequency to screen */
-	for (i = 0; i < fr->maxfreqs; i++) {
+	for (i = 0; i < dftout; i++) {
 		/* complex absolute value */
 		fr->res[i] = cabs(fr->out[i]);
 		/* normalize it */
-		fr->res[i] /= fr->maxfreqs;
+		fr->res[i] /= dftlen;
 		/* scale it */
 		fr->res[i] *= 0.006 * fr->height;
 	}
 
 	/* take most of the low part of the band */
-	freqs = fr->maxfreqs / fr->width;
+	freqs = dftout / fr->width;
 	freqs *= 0.8;
 
 	/* compute bar height */
@@ -651,15 +649,15 @@ draw_spectro(struct frame *fr)
 	}
 
 	/* take most of the low part of the band */
-	freqs_per_row = fr->maxfreqs / fr->width;
+	freqs_per_row = dftout / fr->width;
 	freqs_per_row *= 0.8;
 
 	/* normalize each frequency */
-	for (i = 0; i < fr->maxfreqs; i++) {
+	for (i = 0; i < dftout; i++) {
 		/* complex absolute value */
 		fr->res[i] = cabs(fr->out[i]);
 		/* normalize it */
-		fr->res[i] /= fr->maxfreqs;
+		fr->res[i] /= dftlen;
 		/* boost higher freqs */
 		fr->res[i] *= log2(i);
 		fr->res[i] = pow(fr->res[i], 0.5);
