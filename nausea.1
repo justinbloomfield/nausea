@@ -1,4 +1,4 @@
-.Dd June 17, 2015
+.Dd June 23, 2015
 .Dt NAUSEA 1
 .Os
 .Sh NAME
@@ -6,8 +6,8 @@
 .Nd curses audio visualizer
 .Sh SYNOPSIS
 .Nm nausea
-.Op Fl hcpklb
-.Op Fl d Ar num
+.Op Fl hcpklbsd
+.Op Fl i Ar num
 .Op Ar fifo
 .Sh DESCRIPTION
 The
@@ -24,7 +24,7 @@ The options are as follows:
 .Bl -tag -width Ds
 .It Fl h
 Show usage line.
-.It Fl d Ar num
+.It Fl i Ar num
 Choose a visualization using its number from below.
 .It Fl c
 Enable color.
@@ -38,6 +38,8 @@ Go left in the fountain visualization.
 Enable bounce mode in the fountain visualization.
 .It Fl s
 Enable stereo mode.
+.It Fl d
+Enable debug printing.
 .El
 .Pp
 Exposed runtime options:

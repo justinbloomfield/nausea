@@ -726,7 +726,7 @@ initcolors(void)
 static void
 usage(void)
 {
-	fprintf(stderr, "usage: %s [-hcpklbs] [-d num] [fifo]\n", argv0);
+	fprintf(stderr, "usage: %s [-hcpklbsd] [-i num] [fifo]\n", argv0);
 	fprintf(stderr, "default fifo path is `/tmp/audio.fifo'\n");
 	exit(1);
 }
@@ -743,7 +743,7 @@ main(int argc, char *argv[])
 	while (--argc > 0 && (*++argv)[0] == '-')
 		while ((c = *++argv[0]))
 			switch (c) {
-			case 'd':
+			case 'i':
 				if (*++argv == NULL)
 					usage();
 				argc--;
@@ -768,6 +768,9 @@ main(int argc, char *argv[])
 				break;
 			case 's':
 				stereo = 1;
+				break;
+			case 'd':
+				debug = 1;
 				break;
 			case 'h':
 				/* fall-through */
@@ -856,6 +859,9 @@ main(int argc, char *argv[])
 			break;
 		case ' ':
 			freeze = !freeze;
+			break;
+		case 'd':
+			debug = !debug;
 			break;
 		}
 
