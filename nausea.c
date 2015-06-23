@@ -110,7 +110,7 @@ static struct color_range {
 static void
 clearall(struct frame *fr)
 {
-	unsigned i;
+	size_t i;
 
 	fr->gotsamples = 0;
 
@@ -160,7 +160,6 @@ static void
 update(struct frame *fr)
 {
 	ssize_t n;
-	unsigned i;
 
 	n = read(fr->fd, fr->buf, nsamples * sizeof(int16_t));
 	if (n == -1) {
@@ -186,7 +185,7 @@ stagestereo(struct frame *fr)
 static void
 stagemono(struct frame *fr)
 {
-	unsigned i;
+	size_t i;
 
 	/* we have half the samples after the merge */
 	fr->gotsamples /= 2;
@@ -229,7 +228,7 @@ computedft(struct frame *fr)
 static void
 setcolor(int on, int y)
 {
-	unsigned i;
+	size_t i;
 	struct color_range *cr;
 
 	if (!colors)
@@ -250,7 +249,7 @@ setcolor(int on, int y)
 static void
 draw_spectrum(struct frame *fr)
 {
-	unsigned i, j;
+	size_t i, j;
 	unsigned freqs_per_col;
 	struct color_range *cr;
 
@@ -344,7 +343,7 @@ draw_spectrum(struct frame *fr)
 static void
 draw_wave(struct frame *fr)
 {
-	unsigned i, j;
+	size_t i, j;
 	unsigned samples_per_col;
 	double pt_pos, pt_pos_prev = 0, pt_pos_mid;
 
@@ -396,9 +395,9 @@ draw_wave(struct frame *fr)
 static void
 draw_fountain(struct frame *fr)
 {
-	unsigned i, j;
+	size_t i, j;
 	struct color_range *cr;
-	static int col = 0;
+	static unsigned col = 0;
 	float bar_height = 0;
 	unsigned freqs;
 
@@ -500,9 +499,9 @@ draw_fountain(struct frame *fr)
 static void
 draw_boom(struct frame *fr)
 {
-	unsigned i, j;
+	size_t i, j;
 	struct color_range *cr;
-	unsigned dim, cx, cy;
+	size_t dim, cx, cy;
 	double r, cur;
 
 	erase();
@@ -578,10 +577,11 @@ draw_boom(struct frame *fr)
 static void
 draw_solid(struct frame *fr)
 {
-	unsigned i, j;
+	size_t i, j;
 	struct color_range *cr;
-	unsigned samples_per_col;
+	size_t samples_per_col;
 	double pt_pos, pt_l, pt_r;
+	size_t y;
 
 	/* read dimensions to catch window resize */
 	fr->width = COLS;
@@ -606,8 +606,6 @@ draw_solid(struct frame *fr)
 
 	attron(A_BOLD);
 	for (i = 0; i < fr->width; i++) {
-		size_t y;
-
 		/* compute point position */
 		if (stereo) {
 			/* round down to an even */
@@ -654,9 +652,11 @@ draw_solid(struct frame *fr)
 static void
 draw_spectro(struct frame *fr)
 {
-	unsigned i, j;
+	size_t i, j;
 	unsigned freqs_per_row;
-	static int col = 0;
+	static unsigned col = 0;
+	float amplitude = 0;
+	size_t idx;
 
 	/* read dimensions to catch window resize */
 	fr->width = COLS;
@@ -687,9 +687,7 @@ draw_spectro(struct frame *fr)
 
 	attron(A_BOLD);
 	for (j = 0; j < fr->height; j++) {
-		float amplitude = 0;
-		size_t idx;
-
+		amplitude = 0;
 		/* compute amplitude */
 		for (i = 0; i < freqs_per_row; i++)
 			amplitude += fr->res[j * freqs_per_row + i];
@@ -713,7 +711,7 @@ draw_spectro(struct frame *fr)
 static void
 initcolors(void)
 {
-	unsigned i;
+	size_t i;
 	struct color_range *cr;
 
 	start_color();
