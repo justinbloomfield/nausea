@@ -38,6 +38,7 @@ static int bounce;
 static int die;
 static int freeze;
 static int stereo;
+static int debug;
 
 struct frame {
 	int fd;
@@ -47,7 +48,7 @@ struct frame {
 	int *sav;
 #define PK_HIDDEN -1
 	int16_t *buf;
-	unsigned *res;
+	float *res;
 	double *in;
 	size_t gotsamples;
 	complex *out;
@@ -131,7 +132,7 @@ init(struct frame *fr)
 
 	/* these are used only by DFT visuals */
 	fr->out = malloc(dftout * sizeof(complex));
-	fr->res = malloc(dftout * sizeof(unsigned));
+	fr->res = malloc(dftout * sizeof(float));
 
 	clearall(fr);
 
@@ -173,10 +174,13 @@ update(struct frame *fr)
 static void
 stagestereo(struct frame *fr)
 {
-	unsigned i;
+	size_t i;
 
-	for (i = 0; i < nsamples; i++)
-		fr->in[i] = fr->buf[i];
+	for (i = 0; i < nsamples; i++) {
+		fr->in[i] = 0.;
+		if (i < fr->gotsamples)
+			fr->in[i] = fr->buf[i];
+	}
 }
 
 static void
@@ -199,9 +203,27 @@ stagemono(struct frame *fr)
 }
 
 static void
+normalizeaudio(struct frame *fr)
+{
+	size_t i;
+
+	for (i = 0; i < nsamples; i++)
+		fr->in[i] /= (float)INT16_MAX;
+}
+
+static void
 computedft(struct frame *fr)
 {
+	size_t i;
+
 	fftw_execute(fr->plan);
+
+	for (i = 0; i < dftout; i++) {
+		/* complex absolute value */
+		fr->res[i] = cabs(fr->out[i]);
+		/* normalize it */
+		fr->res[i] /= dftlen;
+	}
 }
 
 static void
@@ -259,24 +281,23 @@ draw_spectrum(struct frame *fr)
 	freqs_per_col = dftout / fr->width;
 	freqs_per_col *= 0.8;
 
+	erase();
+
 	/* scale each frequency to screen */
 	for (i = 0; i < dftout; i++) {
-		/* complex absolute value */
-		fr->res[i] = cabs(fr->out[i]);
-		/* normalize it */
-		fr->res[i] /= dftlen;
+		if (debug && i == fr->width / 4)
+			printw("%f\n", fr->res[i]);
 		/* boost higher freqs */
-		fr->res[i] *= log2(i);
-		fr->res[i] *= 0.00005 * i;
-		fr->res[i] = pow(fr->res[i], 0.5);
+		fr->res[i] *= log10(1 + i);
+		fr->res[i] *= 0.25 * i;
+		fr->res[i] = pow(fr->res[i], 0.75);
 		/* scale it */
-		fr->res[i] *= 0.15 * fr->height;
+		fr->res[i] *= fr->height;
 	}
 
-	erase();
 	attron(A_BOLD);
 	for (i = 0; i < fr->width; i++) {
-		size_t bar_height = 0;
+		float bar_height = 0;
 		size_t ybegin, yend;
 
 		/* compute bar height */
@@ -285,7 +306,7 @@ draw_spectrum(struct frame *fr)
 		bar_height /= freqs_per_col;
 
 		/* we draw from top to bottom */
-		ybegin = fr->height - MIN(bar_height, fr->height);
+		ybegin = fr->height - MIN(bar_height, fr->height) + 1;
 		yend = fr->height;
 
 		/* If the current freq reaches the peak, the peak is
@@ -348,8 +369,8 @@ draw_wave(struct frame *fr)
 		for (j = 0; j < samples_per_col; j++)
 			pt_pos += fr->in[i * samples_per_col + j];
 		pt_pos /= samples_per_col;
-		/* normalize it */
-		pt_pos /= INT16_MAX;
+		if (debug && i == 0)
+			printw("%+f\n", pt_pos);
 		/* scale it */
 		pt_pos *= (fr->height / 2) * 0.8;
 
@@ -378,7 +399,7 @@ draw_fountain(struct frame *fr)
 	unsigned i, j;
 	struct color_range *cr;
 	static int col = 0;
-	size_t bar_height = 0;
+	float bar_height = 0;
 	unsigned freqs;
 
 	/* read dimensions to catch window resize */
@@ -402,19 +423,14 @@ draw_fountain(struct frame *fr)
 		}
 	}
 
-	/* scale each frequency to screen */
 	for (i = 0; i < dftout; i++) {
-		/* complex absolute value */
-		fr->res[i] = cabs(fr->out[i]);
-		/* normalize it */
-		fr->res[i] /= dftlen;
-		/* scale it */
-		fr->res[i] *= 0.006 * fr->height;
+		/* boost higher freqs */
+		fr->res[i] *= log10(1 + i);
+		fr->res[i] *= 0.25 * i;
+		fr->res[i] = pow(fr->res[i], 0.75);
 	}
 
-	/* take most of the low part of the band */
 	freqs = dftout / fr->width;
-	freqs *= 0.8;
 
 	/* compute bar height */
 	for (j = 0; j < freqs; j++)
@@ -422,6 +438,13 @@ draw_fountain(struct frame *fr)
 	bar_height /= freqs;
 
 	erase();
+
+	if (debug)
+		printw("%f\n", bar_height);
+
+	/* scale it */
+	bar_height *= fr->height * 5;
+
 	attron(A_BOLD);
 
 	/* ensure we are inside the frame */
@@ -479,8 +502,8 @@ draw_boom(struct frame *fr)
 {
 	unsigned i, j;
 	struct color_range *cr;
-	unsigned dim, cx, cy, cur, r;
-	double avg = 0;
+	unsigned dim, cx, cy;
+	double r, cur;
 
 	erase();
 
@@ -508,10 +531,12 @@ draw_boom(struct frame *fr)
 	dim = MIN(fr->width / 2, fr->height);
 
 	for (i = 0; i < fr->gotsamples; i++)
-		avg += abs(fr->in[i]);
-	avg /= fr->gotsamples;
+		r += fabs(fr->in[i]);
+	r /= fr->gotsamples;
+	if (debug)
+		printw("%f\n", r);
 	/* scale it to our box */
-	r = (avg * dim / INT16_MAX);
+	r *= dim;
 
 	/* center */
 	cx = fr->width / 2;
@@ -527,7 +552,7 @@ draw_boom(struct frame *fr)
 			cur = sqrt((i - cx) * (i - cx) +
 			           (j - cy) * (j - cy));
 			/* draw points on the perimeter */
-			if (cur == r) {
+			if (cur >= r && cur < r + 1) {
 				move(j, 2 * i - cx);
 				printw("%lc", chpoint);
 				/* leave just the center point alone */
@@ -595,25 +620,22 @@ draw_solid(struct frame *fr)
 			}
 			pt_l /= samples_per_col / 2;
 			pt_r /= samples_per_col / 2;
-			/* normalize it */
-			pt_l /= INT16_MAX;
-			pt_r /= INT16_MAX;
-			/* scale it */
-			pt_l *= (fr->height / 2);
-			pt_r *= (fr->height / 2);
 		} else {
 			pt_pos = 0;
 			for (j = 0; j < samples_per_col; j++)
 				pt_pos += fr->in[i * samples_per_col + j];
 			pt_pos /= samples_per_col;
-			/* normalize it */
-			pt_pos /= INT16_MAX;
-			/* scale it */
-			pt_pos *= (fr->height / 2);
 			/* treat left and right as the same */
 			pt_l = pt_pos;
 			pt_r = pt_pos;
 		}
+
+		if (debug && i == 0)
+			printw("%+f\n%+f\n", pt_l, pt_r);
+
+		/* scale it */
+		pt_l *= (fr->height / 2);
+		pt_r *= (fr->height / 2);
 
 		/* output points */
 		setcolor(1, fr->height / 2 - MAX(abs(pt_l), abs(pt_r)));
@@ -650,19 +672,14 @@ draw_spectro(struct frame *fr)
 
 	/* take most of the low part of the band */
 	freqs_per_row = dftout / fr->width;
-	freqs_per_row *= 0.8;
 
 	/* normalize each frequency */
 	for (i = 0; i < dftout; i++) {
-		/* complex absolute value */
-		fr->res[i] = cabs(fr->out[i]);
-		/* normalize it */
-		fr->res[i] /= dftlen;
 		/* boost higher freqs */
-		fr->res[i] *= log2(i);
+		fr->res[i] *= log10(1 + i);
 		fr->res[i] = pow(fr->res[i], 0.5);
 		/* scale it */
-		fr->res[i] *= WCSLEN(intensity) * 0.04;
+		fr->res[i] *= WCSLEN(intensity) * 8.0;
 	}
 
 	/* ensure we are inside the frame */
@@ -670,18 +687,22 @@ draw_spectro(struct frame *fr)
 
 	attron(A_BOLD);
 	for (j = 0; j < fr->height; j++) {
-		size_t amplitude = 0;
+		float amplitude = 0;
+		size_t idx;
 
 		/* compute amplitude */
 		for (i = 0; i < freqs_per_row; i++)
 			amplitude += fr->res[j * freqs_per_row + i];
 		amplitude /= freqs_per_row;
-		if (amplitude > WCSLEN(intensity))
-			amplitude = WCSLEN(intensity) - 1;
+		idx = amplitude;
+		if (idx > WCSLEN(intensity))
+			idx = WCSLEN(intensity) - 1;
 
 		/* output intensity */
 		move(fr->height - j - 1, col);
-		printw("%lc", intensity[amplitude]);
+		printw("%lc", intensity[idx]);
+		if (debug)
+			printw(" %0f ", amplitude);
 	}
 	attroff(A_BOLD);
 	refresh();
@@ -855,6 +876,8 @@ main(int argc, char *argv[])
 			stagestereo(&fr);
 		else
 			stagemono(&fr);
+
+		normalizeaudio(&fr);
 
 		/* compute the DFT if needed */
 		if (visuals[vidx].dft)
